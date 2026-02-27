@@ -5,6 +5,8 @@ from chess_engine.movegen import generate_legal_moves, generate_pseudo_legal_mov
 from chess_engine.move import move_to_uci, encode_move, decode_from, decode_to, decode_flags
 from chess_engine.perft import perft, divide
 from chess_engine.fen import STARTING_FEN
+from chess_engine.evaluator import evaluate
+from chess_engine.search import find_best_move, minimax
 
 __all__ = [
     "Board",
@@ -18,4 +20,7 @@ __all__ = [
     "perft",
     "divide",
     "STARTING_FEN",
+    "evaluate",
+    "find_best_move",
+    "minimax",
 ]
