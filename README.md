@@ -47,6 +47,18 @@ function minimax(position, depth, is_maximising):
 
 At this point you have a working, beatable chess engine. Measure its strength using **Elo estimation** by playing it against Stockfish at very low depth settings.
 
+**Phase 2 result (depth 2, 10 games/level vs Stockfish 18):**
+
+| Opponent | Score | Est. Elo |
+|---|---|---|
+| SF Skill 0 depth 1 (~900) | 40% | 830 |
+| SF Skill 0 depth 3 (~1100) | 0% | 423 |
+| SF Skill 0 depth 6 (~1250) | 15% | 949 |
+| SF UCI Elo 1320 | 5% | 808 |
+| SF UCI Elo 1500 | 0% | 823 |
+
+**Weighted Elo estimate: ~840**
+
 ---
 
 ### Phase 3: Alpha-Beta Pruning (v2)
@@ -76,6 +88,18 @@ function alphabeta(position, depth, alpha, beta, is_maximising):
 - **Iterative deepening** — search to depth 1, then 2, then 3, using the previous result to order moves better each time
 
 Measure Elo again. The jump from v1 to v2 should be dramatic.
+
+**Phase 3 result (depth 2, 10 games/level vs Stockfish 18):**
+
+| Opponent | Score | Est. Elo |
+|---|---|---|
+| SF Skill 0 depth 1 (~900) | 100% | 1577 |
+| SF Skill 0 depth 3 (~1100) | 50% | 1100 |
+| SF Skill 0 depth 6 (~1250) | 80% | 1491 |
+| SF UCI Elo 1320 | 80% | 1561 |
+| SF UCI Elo 1500 | 45% | 1465 |
+
+**Weighted Elo estimate: ~1352 · Best estimate (UCI brackets): ~1400–1450**
 
 ---
 
@@ -150,4 +174,8 @@ Train with MSE loss against Stockfish evaluations using PyTorch.
 
 ## Elo Progression
 
-<!-- TODO: Add chart showing v1 → v2 → v3 Elo improvement -->
+| Version | Phase | Est. Elo | Jump |
+|---|---|---|---|
+| v1 | Minimax + hand-coded eval (depth 2) | ~840 | — |
+| v2 | Alpha-beta + TT + move ordering + quiescence (depth 2) | ~1400–1450 | +560–610 |
+| v3 | Neural network evaluator | TBD | — |
