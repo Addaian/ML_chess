@@ -178,6 +178,83 @@ def _gen_castling_moves(board, moves: list) -> None:
                     moves.append(encode_move(E8, C8, FLAG_QUEEN_CASTLE))
 
 
+def generate_pseudo_legal_captures(board) -> list[int]:
+    """Generate pseudo-legal captures and promotions only (for quiescence search)."""
+    moves: list[int] = []
+    side = board.side
+
+    if side == WHITE:
+        pawns = board.piece_bb[WHITE_PAWN]
+        enemy = board.occupied_side[BLACK]
+        promo_rank = RANK_7
+        push = 8
+    else:
+        pawns = board.piece_bb[BLACK_PAWN]
+        enemy = board.occupied_side[WHITE]
+        promo_rank = RANK_2
+        push = -8
+
+    empty = ~board.occupied & ((1 << 64) - 1)
+
+    # Pawn: promotion pushes + captures + EP captures (no quiet pushes/double pushes)
+    for sq in iter_bits(pawns):
+        is_promo = bool((1 << sq) & promo_rank)
+        if is_promo:
+            to = sq + push
+            if 0 <= to < 64 and (1 << to) & empty:
+                moves.append(encode_move(sq, to, FLAG_PROMO_QUEEN))
+                moves.append(encode_move(sq, to, FLAG_PROMO_ROOK))
+                moves.append(encode_move(sq, to, FLAG_PROMO_BISHOP))
+                moves.append(encode_move(sq, to, FLAG_PROMO_KNIGHT))
+        for cap_sq in iter_bits(PAWN_ATTACKS[side][sq] & enemy):
+            if is_promo:
+                moves.append(encode_move(sq, cap_sq, FLAG_PROMO_CAPTURE_QUEEN))
+                moves.append(encode_move(sq, cap_sq, FLAG_PROMO_CAPTURE_ROOK))
+                moves.append(encode_move(sq, cap_sq, FLAG_PROMO_CAPTURE_BISHOP))
+                moves.append(encode_move(sq, cap_sq, FLAG_PROMO_CAPTURE_KNIGHT))
+            else:
+                moves.append(encode_move(sq, cap_sq, FLAG_CAPTURE))
+        if board.ep_square != -1:
+            if (1 << board.ep_square) & PAWN_ATTACKS[side][sq]:
+                moves.append(encode_move(sq, board.ep_square, FLAG_EP_CAPTURE))
+
+    # Sliding + leaping pieces: captures only
+    friendly = board.occupied_side[side]
+
+    for sq in iter_bits(board.piece_bb[WHITE_KNIGHT + side * 6]):
+        for to in iter_bits(KNIGHT_ATTACKS[sq] & enemy):
+            moves.append(encode_move(sq, to, FLAG_CAPTURE))
+
+    for sq in iter_bits(board.piece_bb[WHITE_BISHOP + side * 6]):
+        for to in iter_bits(bishop_attacks(sq, board.occupied) & enemy):
+            moves.append(encode_move(sq, to, FLAG_CAPTURE))
+
+    for sq in iter_bits(board.piece_bb[WHITE_ROOK + side * 6]):
+        for to in iter_bits(rook_attacks(sq, board.occupied) & enemy):
+            moves.append(encode_move(sq, to, FLAG_CAPTURE))
+
+    for sq in iter_bits(board.piece_bb[WHITE_QUEEN + side * 6]):
+        for to in iter_bits(queen_attacks(sq, board.occupied) & enemy):
+            moves.append(encode_move(sq, to, FLAG_CAPTURE))
+
+    king_bb = board.piece_bb[WHITE_KING + side * 6]
+    king_sq = (king_bb & -king_bb).bit_length() - 1
+    for to in iter_bits(KING_ATTACKS[king_sq] & enemy):
+        moves.append(encode_move(king_sq, to, FLAG_CAPTURE))
+
+    return moves
+
+
+def generate_legal_captures(board) -> list[int]:
+    """Legal captures + promotions only (for quiescence search)."""
+    legal = []
+    for move in generate_pseudo_legal_captures(board):
+        if board.make_move(move):
+            board.unmake_move()
+            legal.append(move)
+    return legal
+
+
 def generate_pseudo_legal_moves(board) -> list[int]:
     moves: list[int] = []
     _gen_pawn_moves(board, moves)

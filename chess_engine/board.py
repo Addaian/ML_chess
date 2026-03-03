@@ -29,13 +29,14 @@ class _UndoInfo:
     castling: int
     ep_square: int
     halfmove: int
+    hash_key: int
 
 
 class Board:
     __slots__ = (
         'piece_bb', 'occupied', 'occupied_side',
         'mailbox', 'side', 'castling', 'ep_square',
-        'halfmove', 'fullmove', 'history',
+        'halfmove', 'fullmove', 'history', 'hash_key',
     )
 
     def __init__(self, fen: str = STARTING_FEN):
@@ -49,6 +50,7 @@ class Board:
         self.halfmove: int = 0
         self.fullmove: int = 1
         self.history: list[_UndoInfo] = []
+        self.hash_key: int = 0
         self._load_fen(fen)
 
     def _load_fen(self, fen: str) -> None:
@@ -67,6 +69,10 @@ class Board:
         for sq, piece in enumerate(info['pieces']):
             if piece != PIECE_NONE:
                 self._place_piece(piece, sq)
+
+        # Compute Zobrist hash after all pieces are placed
+        from chess_engine.zobrist import compute_hash
+        self.hash_key = compute_hash(self)
 
     def _place_piece(self, piece: int, sq: int) -> None:
         self.piece_bb[piece] = set_bit(self.piece_bb[piece], sq)
@@ -93,24 +99,35 @@ class Board:
 
     def make_move(self, move: int) -> bool:
         """Apply move. Returns True if the move is legal (doesn't leave king in check)."""
+        from chess_engine.zobrist import PIECE_KEYS, SIDE_KEY, CASTLE_KEYS, EP_KEYS, NO_EP_KEY
+
         from_sq = decode_from(move)
         to_sq = decode_to(move)
         flags = decode_flags(move)
         moving_piece = self.mailbox[from_sq]
         captured_piece = PIECE_NONE
 
-        # Save undo info
+        h = self.hash_key
+
+        # XOR out old castling and EP keys
+        h ^= CASTLE_KEYS[self.castling]
+        if self.ep_square != -1:
+            h ^= EP_KEYS[self.ep_square & 7]
+        else:
+            h ^= NO_EP_KEY
+
+        # Save undo info (with current hash, before modifications)
         undo = _UndoInfo(
             move=move,
             captured_piece=PIECE_NONE,
             castling=self.castling,
             ep_square=self.ep_square,
             halfmove=self.halfmove,
+            hash_key=self.hash_key,
         )
 
         # Handle captures
         if flags == FLAG_EP_CAPTURE:
-            # Remove the captured pawn
             if self.side == WHITE:
                 cap_sq = to_sq - 8
                 captured_piece = BLACK_PAWN
@@ -118,33 +135,47 @@ class Board:
                 cap_sq = to_sq + 8
                 captured_piece = WHITE_PAWN
             self._remove_piece(captured_piece, cap_sq)
+            h ^= PIECE_KEYS[captured_piece][cap_sq]
         elif is_capture(move):
             captured_piece = self.mailbox[to_sq]
             self._remove_piece(captured_piece, to_sq)
+            h ^= PIECE_KEYS[captured_piece][to_sq]
 
         undo.captured_piece = captured_piece
 
-        # Move the piece
+        # Move the piece: XOR out from_sq, XOR in to_sq
+        h ^= PIECE_KEYS[moving_piece][from_sq]
+        h ^= PIECE_KEYS[moving_piece][to_sq]
         self._move_piece(moving_piece, from_sq, to_sq)
 
         # Handle promotions
         if is_promotion(move):
             promo_type = promotion_piece_type(move)  # 1=N,2=B,3=R,4=Q
             promo_piece = (self.side * 6) + promo_type
-            # Replace pawn with promoted piece
+            # XOR out the pawn at to_sq, XOR in the promoted piece
+            h ^= PIECE_KEYS[moving_piece][to_sq]
+            h ^= PIECE_KEYS[promo_piece][to_sq]
             self._remove_piece(moving_piece, to_sq)
             self._place_piece(promo_piece, to_sq)
 
         # Handle castling — move the rook
         if flags == FLAG_KING_CASTLE:
             if self.side == WHITE:
+                h ^= PIECE_KEYS[WHITE_ROOK][H1]
+                h ^= PIECE_KEYS[WHITE_ROOK][F1]
                 self._move_piece(WHITE_ROOK, H1, F1)
             else:
+                h ^= PIECE_KEYS[BLACK_ROOK][H8]
+                h ^= PIECE_KEYS[BLACK_ROOK][F8]
                 self._move_piece(BLACK_ROOK, H8, F8)
         elif flags == FLAG_QUEEN_CASTLE:
             if self.side == WHITE:
+                h ^= PIECE_KEYS[WHITE_ROOK][A1]
+                h ^= PIECE_KEYS[WHITE_ROOK][D1]
                 self._move_piece(WHITE_ROOK, A1, D1)
             else:
+                h ^= PIECE_KEYS[BLACK_ROOK][A8]
+                h ^= PIECE_KEYS[BLACK_ROOK][D8]
                 self._move_piece(BLACK_ROOK, A8, D8)
 
         # Update castling rights
@@ -168,6 +199,16 @@ class Board:
 
         # Switch side
         self.side ^= 1
+        h ^= SIDE_KEY
+
+        # XOR in new castling and EP keys
+        h ^= CASTLE_KEYS[self.castling]
+        if self.ep_square != -1:
+            h ^= EP_KEYS[self.ep_square & 7]
+        else:
+            h ^= NO_EP_KEY
+
+        self.hash_key = h
 
         # Check legality — did we leave our king in check?
         king_sq = bitscan_forward(self.piece_bb[WHITE_KING + (self.side ^ 1) * 6])
@@ -231,6 +272,9 @@ class Board:
         self.halfmove = undo.halfmove
         if self.side == BLACK:
             self.fullmove -= 1
+
+        # Restore hash
+        self.hash_key = undo.hash_key
 
     def is_in_check(self) -> bool:
         king_sq = bitscan_forward(self.piece_bb[WHITE_KING + self.side * 6])
