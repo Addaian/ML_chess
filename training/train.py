@@ -57,7 +57,7 @@ def train(data_dir: str, epochs: int, batch_size: int):
 
     model = get_chess_net()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=2, factor=0.5, verbose=False)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=2, factor=0.5)
     criterion = nn.MSELoss()
 
     best_val_loss = float('inf')

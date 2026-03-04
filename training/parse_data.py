@@ -196,17 +196,12 @@ def process_file(pgn_zst_path: str, out_dir: str, max_positions: int = 5_000_000
             parts = re.split(r'\n\n(?=\[)', buffer)
             buffer = parts[-1]
 
-            # Pair up header + moves for each complete game
-            i = 0
-            while i < len(parts) - 1:
-                header_block = parts[i]
-                i += 1
-                # The moves section is the next block if it doesn't start with '['
-                if i < len(parts) - 1 and not parts[i].lstrip().startswith('['):
-                    moves_block = parts[i]
-                    i += 1
-                else:
-                    moves_block = ""
+            # Each part is a full game: "[headers...]\n\n[moves...]"
+            for game_text in parts[:-1]:
+                sep = game_text.find('\n\n')
+                if sep == -1:
+                    continue
+                moves_block = game_text[sep + 2:]
 
                 games += 1
                 try:

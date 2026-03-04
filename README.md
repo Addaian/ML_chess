@@ -128,6 +128,20 @@ Train with MSE loss against Stockfish evaluations using PyTorch.
 - Replace the `evaluate(position)` call in alpha-beta with a forward pass through the network
 - The search logic stays identical — only the eval function changes
 
+**Phase 4 result (depth 2, 10 games/level vs Stockfish 18, trained on 5M Lichess positions):**
+
+| Opponent | Score | Est. Elo |
+|---|---|---|
+| SF Skill 0 depth 1 (~900) | 80% | 1141 |
+| SF Skill 0 depth 3 (~1100) | 90% | 1482 |
+| SF Skill 0 depth 6 (~1250) | 90% | 1632 |
+| SF UCI Elo 1320 | 75% | 1511 |
+| SF UCI Elo 1500 | 50% | 1500 |
+
+**Weighted Elo estimate: ~1450 · Best estimate (UCI brackets): ~1450–1500**
+
+---
+
 **Going further (AlphaZero-style)**
 - Add a **policy head** alongside the value head — the network also outputs a probability distribution over moves
 - Use **Monte Carlo Tree Search (MCTS)** instead of alpha-beta — the policy head guides which branches to explore, the value head scores leaf nodes
@@ -178,4 +192,4 @@ Train with MSE loss against Stockfish evaluations using PyTorch.
 |---|---|---|---|
 | v1 | Minimax + hand-coded eval (depth 2) | ~840 | — |
 | v2 | Alpha-beta + TT + move ordering + quiescence (depth 2) | ~1400–1450 | +560–610 |
-| v3 | Neural network evaluator | TBD | — |
+| v3 | NN evaluator (768→256→128→64→1, trained on 5M Lichess positions, depth 2) | ~1450–1500 | +50 |

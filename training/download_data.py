@@ -8,7 +8,7 @@ Usage:
 
 import argparse
 import os
-import urllib.request
+import subprocess
 
 BASE_URL = "https://database.lichess.org/standard/"
 DEFAULT_FILE = "lichess_db_standard_rated_2024-01.pgn.zst"
@@ -23,15 +23,8 @@ def download(filename: str, dest_dir: str = "training/data") -> str:
         return dest
     print(f"Downloading {url}")
     print("(Large file — several GB. Ctrl+C to cancel.)")
-    urllib.request.urlretrieve(url, dest, reporthook=_progress)
-    print()
+    subprocess.run(["curl", "-L", "--progress-bar", "-o", dest, url], check=True)
     return dest
-
-
-def _progress(count, block_size, total_size):
-    mb = count * block_size / 1_048_576
-    total_mb = total_size / 1_048_576
-    print(f"\r  {mb:.0f} / {total_mb:.0f} MB", end="", flush=True)
 
 
 if __name__ == "__main__":
