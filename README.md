@@ -2,29 +2,60 @@
 
 A chess engine that evolves through three versions — from hand-coded evaluation to neural network — with measurable Elo progression at each stage.
 
-<!-- TODO: Add a GIF of the engine playing here -->
-<!-- TODO: Add Elo progression chart (v1 → v2 → v3) -->
+---
+
+## Elo Progression
+
+| Version | Description | Est. Elo | Jump |
+|---|---|---|---|
+| v1 | Minimax + hand-coded eval (depth 2) | ~840 | — |
+| v2 | Alpha-beta + TT + move ordering + quiescence (depth 2) | ~1400–1450 | +560–610 |
+| v3 | Alpha-beta + NN evaluator, trained on 5M Lichess positions (depth 2) | ~1450–1500 | +50 |
+
+---
+
+## Getting Started
+
+```bash
+git clone <repo>
+cd ML_chess
+pip install numpy         # runtime dependency
+pip install pytest        # for tests
+
+# Run the engine from CLI
+python -m chess_engine.engine "<FEN>" [depth]
+
+# Run all tests
+python -m pytest tests/ -v
+
+# Run web server (localhost:5000)
+python -m chess_engine.server
+```
+
+To use the hand-coded evaluator instead of the neural network:
+```bash
+CHESS_EVAL=hce python -m chess_engine.engine "<FEN>"
+```
 
 ---
 
 ## Build Plan
 
-### Phase 1: Board Representation & Move Generation
+### Phase 1: Board Representation & Move Generation ✓
 
-The foundation everything else sits on. Get this right before touching search or ML.
+The foundation everything else sits on.
 
 **Core data structures**
-- Represent the board as a **bitboard** — 12 x 64-bit integers, one per piece type per color. Compact and fast using bitwise operations. Alternatively, an 8x8 array is simpler to start but slower.
-- Board state object should track: piece positions, whose turn, castling rights, en passant square, half-move clock (for 50-move rule)
+- **Bitboard** representation — 12 × 64-bit integers, one per piece type per color. Compact and fast using bitwise operations.
+- Board state tracks: piece positions, whose turn, castling rights, en passant square, half-move clock (50-move rule), Zobrist hash
 
 **Move generation**
-- Generate all legal moves from a given position
-- Handle edge cases: castling, en passant, pawn promotion, pins (a piece is pinned if moving it exposes your king)
-- Write a **perft test** — a standard chess programming benchmark that counts all possible positions to depth N. There are known correct values you can check against. This is how you know your move generator is bug-free before you build anything on top of it.
+- Full legal move generation including castling, en passant, pawn promotion, and pin detection
+- Verified with **perft tests** — counts all possible positions to depth N against known correct values
 
 ---
 
-### Phase 2: Minimax Engine (v1)
+### Phase 2: Minimax Engine (v1) ✓
 
 ```python
 function minimax(position, depth, is_maximising):
@@ -41,11 +72,10 @@ function minimax(position, depth, is_maximising):
         # mirror for minimising player
 ```
 
-**Hand-coded evaluator to start**
-- Material count: assign point values (pawn=1, knight=3, bishop=3, rook=5, queen=9)
-- Piece-square tables: bonus/penalty for where each piece stands (knights want the centre, kings want the corner in middlegame, etc.) — hardcoded 8x8 arrays, widely available online
-
-At this point you have a working, beatable chess engine. Measure its strength using **Elo estimation** by playing it against Stockfish at very low depth settings.
+**Hand-coded evaluator**
+- Material count: pawn=100, knight=320, bishop=330, rook=500, queen=900 centipawns
+- Piece-square tables (Michniewski values): bonus/penalty for piece placement
+- Positional terms: bishop pair, rooks on open/semi-open files, passed pawns, king pawn shield
 
 **Phase 2 result (depth 2, 10 games/level vs Stockfish 18):**
 
@@ -61,7 +91,7 @@ At this point you have a working, beatable chess engine. Measure its strength us
 
 ---
 
-### Phase 3: Alpha-Beta Pruning (v2)
+### Phase 3: Alpha-Beta Pruning (v2) ✓
 
 ```python
 function alphabeta(position, depth, alpha, beta, is_maximising):
@@ -82,12 +112,11 @@ function alphabeta(position, depth, alpha, beta, is_maximising):
     return alpha if is_maximising else beta
 ```
 
-**Additional optimisations**
-- **Move ordering** — search captures and checks first, since they're more likely to cause cutoffs and make alpha-beta prune more aggressively
-- **Transposition table** — a hash map (Zobrist hashing) that caches positions you've already evaluated so you don't re-search them
-- **Iterative deepening** — search to depth 1, then 2, then 3, using the previous result to order moves better each time
-
-Measure Elo again. The jump from v1 to v2 should be dramatic.
+**Optimisations implemented**
+- **Move ordering** — TT best move → captures (MVV-LVA) → killer moves → history heuristic
+- **Transposition table** — Zobrist hashing, depth-preferred replacement, ~1M entries
+- **Iterative deepening** — search depth 1→N, reusing TT results to order moves better each iteration
+- **Quiescence search** — extends search through captures at leaf nodes to avoid horizon effect
 
 **Phase 3 result (depth 2, 10 games/level vs Stockfish 18):**
 
@@ -103,32 +132,32 @@ Measure Elo again. The jump from v1 to v2 should be dramatic.
 
 ---
 
-### Phase 4: Neural Network Evaluator (v3)
+### Phase 4: Neural Network Evaluator (v3) ✓
 
-Replace the hand-coded eval function with a trained network.
+Replace the hand-coded eval function with a network trained on Stockfish evaluations. The search logic is unchanged — only `evaluate()` is swapped.
 
-**Data**
-- Download the **Lichess open database** (lichess.org/database) — millions of real games with Stockfish centipawn evaluations attached
-- Parse PGN files into (board state → evaluation score) pairs
-- Represent each board state as an **input tensor**: 12 x 8 x 8 (one binary plane per piece type per color) = 768 input features
+**Data pipeline**
+- Source: Lichess standard rated games PGN (January 2024, ~30 GB), with `[%eval X.XX]` Stockfish annotations
+- Parsed 5M positions from 983K games; filtered to `|eval| ≤ 1500 cp`, skipping mate scores
+- Labels normalised to `[-1, 1]`: `label = clamp(cp, ±1500) / 1500`
 
-**Model architecture (start simple)**
-```python
-Input: 768 features (12 piece planes x 64 squares)
-→ Dense(256, relu)
-→ Dense(128, relu)
-→ Dense(64, relu)
-→ Dense(1, tanh)   # output: score from -1 (black winning) to +1 (white winning)
+**Model architecture**
+```
+Input: 768 features (12 piece planes × 64 squares, binary)
+→ Linear(768, 256) → ReLU
+→ Linear(256, 128) → ReLU
+→ Linear(128,  64) → ReLU
+→ Linear( 64,   1) → Tanh     # output ∈ [-1, +1], scaled ×1500 → centipawns
 ```
 
-Train with MSE loss against Stockfish evaluations using PyTorch.
+**Training**
+- Optimiser: Adam (lr=1e-3, weight_decay=1e-4), batch size 4096, 10 epochs
+- MSE loss vs Stockfish eval; 90/10 train/val split
+- Best val loss: 0.01915
 
-**Plugging it in**
-- Export the trained model
-- Replace the `evaluate(position)` call in alpha-beta with a forward pass through the network
-- The search logic stays identical — only the eval function changes
+**Runtime inference**: weights exported to numpy `.npz`; forward pass runs with pure numpy (no PyTorch at inference time, ~20–80 µs per call).
 
-**Phase 4 result (depth 2, 10 games/level vs Stockfish 18, trained on 5M Lichess positions):**
+**Phase 4 result (depth 2, 10 games/level vs Stockfish 18):**
 
 | Opponent | Score | Est. Elo |
 |---|---|---|
@@ -140,10 +169,8 @@ Train with MSE loss against Stockfish evaluations using PyTorch.
 
 **Weighted Elo estimate: ~1450 · Best estimate (UCI brackets): ~1450–1500**
 
----
-
 **Going further (AlphaZero-style)**
-- Add a **policy head** alongside the value head — the network also outputs a probability distribution over moves
+- Add a **policy head** alongside the value head — the network outputs a probability distribution over moves
 - Use **Monte Carlo Tree Search (MCTS)** instead of alpha-beta — the policy head guides which branches to explore, the value head scores leaf nodes
 - Larger jump in complexity but makes for an extraordinary project
 
@@ -151,14 +178,14 @@ Train with MSE loss against Stockfish evaluations using PyTorch.
 
 ### Phase 5: Web App
 
-**Backend (Python/FastAPI)**
-- Expose a REST endpoint: receive FEN string (standard chess position notation), return best move
-- Run the engine server-side
+**Backend (FastAPI)**
+- REST endpoint: receive FEN string, return best move
+- Engine runs server-side; server already partially implemented in `chess_engine/server.py`
 
 **Frontend (React)**
 - `chess.js` — handles game logic, validates moves
 - `react-chessboard` — renders the board
-- On each player move, send the FEN to the backend, get the engine's response, update the board
+- On each player move, send FEN to backend, get engine response, update board
 
 ---
 
@@ -166,30 +193,38 @@ Train with MSE loss against Stockfish evaluations using PyTorch.
 
 | Component | Technology |
 |---|---|
-| Engine core | Python (fast to build) or Rust (fast to run) |
-| ML training | PyTorch |
-| Backend API | FastAPI |
-| Frontend | React + react-chessboard |
-| Deployment | Hugging Face Spaces (free, great for ML demos) |
+| Engine core | Python 3.11 |
+| Board representation | Bitboards (12 × 64-bit integers) |
+| Search | Negamax alpha-beta, TT, iterative deepening, quiescence |
+| Evaluator (v2) | Hand-coded: material + PST + positional terms |
+| Evaluator (v3) | PyTorch (training) → numpy (inference) |
+| Training data | Lichess standard rated games PGN |
+| Backend API | FastAPI (partial) |
+| Frontend | React + react-chessboard (planned) |
+| Deployment | Hugging Face Spaces (planned) |
 
 ---
 
 ## Architecture
 
-<!-- TODO: Add architecture diagram -->
+```
+chess_engine/
+  board.py       — Board state, make/unmake move, Zobrist hashing
+  movegen.py     — Legal move generation (bitboard-based)
+  search.py      — Negamax alpha-beta, TT, move ordering, quiescence
+  evaluator.py   — Dispatcher: NN eval (v3) with HCE fallback (v2)
+  nn/
+    features.py  — board_to_tensor(): Board → 768-float numpy array
+    model.py     — NumpyChessNet (runtime) + ChessNet/export_weights (training)
+    weights.npz  — Trained model weights
+  server.py      — FastAPI backend
+  engine.py      — CLI entry point
 
----
+training/
+  download_data.py — Download Lichess PGN
+  parse_data.py    — PGN → .npz training chunks
+  train.py         — Training loop, exports weights.npz
 
-## Getting Started
-
-<!-- TODO: Add local setup instructions -->
-
----
-
-## Elo Progression
-
-| Version | Phase | Est. Elo | Jump |
-|---|---|---|---|
-| v1 | Minimax + hand-coded eval (depth 2) | ~840 | — |
-| v2 | Alpha-beta + TT + move ordering + quiescence (depth 2) | ~1400–1450 | +560–610 |
-| v3 | NN evaluator (768→256→128→64→1, trained on 5M Lichess positions, depth 2) | ~1450–1500 | +50 |
+tests/           — pytest suite (58 tests: perft, movegen, search, evaluator, NN)
+elo_test.py      — Elo estimation vs Stockfish (configurable depth/games)
+```
