@@ -1,25 +1,25 @@
 """Tests for the static evaluator."""
 
 from chess_engine.board import Board
-from chess_engine.evaluator import evaluate, PST_KNIGHT, PST, MATERIAL
+from chess_engine.evaluator import _hce_evaluate, PST_KNIGHT, PST, MATERIAL
 
 
 def test_starting_position_is_zero():
     board = Board()
-    assert evaluate(board) == 0
+    assert _hce_evaluate(board) == 0
 
 
 def test_white_up_a_queen():
     # White has an extra queen, Black is missing hers
     board = Board("rnb1kbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
-    score = evaluate(board)
+    score = _hce_evaluate(board)
     assert score > 800
 
 
 def test_black_up_a_queen():
     # Black has an extra queen, White is missing hers
     board = Board("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNB1KBNR w KQkq - 0 1")
-    score = evaluate(board)
+    score = _hce_evaluate(board)
     assert score < -800
 
 
@@ -43,7 +43,6 @@ def test_knight_pst_horizontal_symmetry():
 
 
 def test_white_pawn_e4_better_than_a2():
-    # A white pawn on e4 (central, advanced) should score higher than on a2 (rim, back)
     from chess_engine.evaluator import PST_PAWN
     from chess_engine.constants import E4, A2
     assert PST_PAWN[E4] > PST_PAWN[A2]

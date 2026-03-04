@@ -1,4 +1,48 @@
-"""Static evaluation: material counting + piece-square tables (Michniewski) + positional terms."""
+"""Static evaluation: neural network (v3) with hand-coded fallback (v2).
+
+Set CHESS_EVAL=hce in the environment to force the hand-coded evaluator.
+"""
+
+import os as _os
+
+_nn_model = None
+_nn_loaded = False
+_NN_ENABLED = _os.environ.get("CHESS_EVAL", "nn") != "hce"
+_EVAL_SCALE = 1500  # centipawns — must match training/config.py EVAL_CLAMP
+
+
+def _load_nn():
+    global _nn_model, _nn_loaded
+    _nn_loaded = True
+    weights_path = _os.path.join(_os.path.dirname(__file__), "nn", "weights.npz")
+    if _os.path.exists(weights_path):
+        from chess_engine.nn import NumpyChessNet
+        _nn_model = NumpyChessNet(weights_path)
+
+
+def evaluate(board) -> int:
+    """Return static evaluation in centipawns from White's perspective.
+
+    Uses the neural network evaluator if weights are present, otherwise
+    falls back to the hand-coded evaluator (_hce_evaluate).
+    """
+    if _NN_ENABLED:
+        global _nn_model, _nn_loaded
+        if not _nn_loaded:
+            _load_nn()
+        if _nn_model is not None:
+            from chess_engine.nn.features import board_to_tensor
+            features = board_to_tensor(board)
+            raw = _nn_model.forward(features)
+            return int(raw * _EVAL_SCALE)
+    return _hce_evaluate(board)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Hand-coded evaluator (v2 baseline) — kept intact as fallback
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""Hand-coded evaluation: material counting + piece-square tables (Michniewski) + positional terms."""
 
 from chess_engine.bitboard import iter_bits, popcount
 from chess_engine.constants import (
@@ -96,8 +140,8 @@ def _passed_pawn_bonus(sq: int, side: int) -> int:
         return 20 * (6 - square_rank(sq))
 
 
-def evaluate(board) -> int:
-    """Return static evaluation in centipawns from White's perspective.
+def _hce_evaluate(board) -> int:
+    """Hand-coded evaluation in centipawns from White's perspective.
 
     Positive = White is better, negative = Black is better.
     """
